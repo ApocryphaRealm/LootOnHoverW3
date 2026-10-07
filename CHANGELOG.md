@@ -1,7 +1,13 @@
 # Changelog
 
-## 1.0.0 (untested)
+## 1.0.0 (untested as a whole)
 
-- The loot window opens when Geralt looks at something lootable - exploring or swimming, never in combat.
-- A takes the highlighted item, X takes everything, Y opens the window normally, B closes it.
+- The loot window opens when Geralt looks at anything lootable - chests, barrels, crates, corpses, loot bags, herbs -
+  exploring or swimming, never in combat, and he keeps moving with it open.
+- While it is up: A takes the highlighted item, X takes everything, B closes it, Y does nothing. The buttons follow
+  the controller whatever map is installed (the mod's own three input actions).
 - Looking away, or a fight starting, closes it.
+
+In game (2026-10-06, a dropped loot bag, the owner's controller map): opens on look; A took one item; X took the rest
+and closed it; B closed it and it stayed closed; walking away closed it and coming back reopened it - no sword drawn,
+no jump, no kneel. Not yet seen in game: this build's Y, a chest, a herb, swimming, combat.

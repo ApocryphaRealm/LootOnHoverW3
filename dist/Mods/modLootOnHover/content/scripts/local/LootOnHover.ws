@@ -1,27 +1,77 @@
-// Loot on Hover - the loot window opens as soon as Geralt looks at something lootable, with no button press.
-// Exploring or swimming only: never in combat.
+// Loot on Hover - the loot window opens as soon as Geralt looks at anything he can loot - chests, barrels, crates,
+// corpses, loot bags, herbs - with no button press. Exploring or swimming only: never in combat.
+// The buttons below only do these things while the window is up; otherwise every button is the game's own.
 //
 //   Opened by looking (preview): Geralt keeps walking and swimming.
-//     A takes the highlighted item, X takes everything, Y opens the window normally, B closes it.
-//   Opened normally (after Y): the game's own window - Geralt stands still and the stick browses.
-//     A takes, X takes everything, B closes.
+//     A takes the highlighted item, X takes everything, B closes it. Y does nothing.
 //
 // Annotations only: no game script is replaced. The window's own buttons (A take, B close) still come from the
-// game's loot movie; X and Y reach the game as its attack (or dive) actions and are caught here while the window
-// is up, so Geralt never swings or dives on them. Log channel: LootOnHover (-debugscripts).
+// game's loot movie; X and Y are the mod's own two input actions on those buttons, and whatever else the player's
+// map puts on X, Y and B is held off while the window is up. Log channel: LootOnHover (-debugscripts).
 
-@addField(CR4Game) var lohPendingPreview : bool;
+// The container a preview was just asked for, and when: the window may build a frame later, so its OnConfigUI
+// takes the preview only when it is for this container and the request is fresh.
+@addField(CR4Game) var lohPendingContainer : W3Container;
+@addField(CR4Game) var lohPendingTime : float;
 
-@addMethod(CR4Game) public function LohSetPendingPreview(pending : bool)
+@addMethod(CR4Game) public function LohSetPending(container : W3Container)
 {
-	lohPendingPreview = pending;
+	lohPendingContainer = container;
+	lohPendingTime = GetEngineTimeAsSeconds();
 }
+
+@addMethod(CR4Game) public function LohTakePending(container : W3Container) : bool
+{
+	var fresh : bool;
+
+	fresh = container && lohPendingContainer == container && GetEngineTimeAsSeconds() - lohPendingTime < 2.0;
+	lohPendingContainer = NULL;
+	return fresh;
+}
+
+@addMethod(CR4Game) public function LohIsPending(container : W3Container) : bool
+{
+	return container && lohPendingContainer == container;
+}
+
 @addField(CR4LootPopup) var lohPreview : bool;
-@addField(CR4LootPopup) var lohHolding : bool;
+
+// Set only by the test probe: each log line is also shown on screen, so captures carry the trace.
+@addField(CR4Game) var lohShowTrace : bool;
+
+@addMethod(CR4Game) public function LohSetShowTrace(show : bool)
+{
+	lohShowTrace = show;
+}
+
+@addField(CR4Game) var lohTraceLines : array<string>;
+
+@addMethod(CR4Game) public function LohTrace(msg : string)
+{
+	var text : string;
+	var i : int;
+
+	lohTraceLines.PushBack(FloatToStringPrec(GetEngineTimeAsSeconds(), 1) + " " + msg);
+	while (lohTraceLines.Size() > 6)
+	{
+		lohTraceLines.Erase(0);
+	}
+	for (i = 0; i < lohTraceLines.Size(); i += 1)
+	{
+		if (i > 0)
+			text += "<br>";
+		text += lohTraceLines[i];
+	}
+	GetGuiManager().ShowNotification("LOH<br>" + text);
+}
 
 function LohLog(msg : string)
 {
 	LogChannel('LootOnHover', msg);
+	if (theGame.lohShowTrace)
+	{
+		theGame.LohTrace(msg);
+	}
 }
 
 function LohPlayerCanHover() : bool
@@ -51,42 +101,90 @@ function LohGetOurPopup() : CR4LootPopup
 	var popup : CR4LootPopup;
 
 	popup = LohGetPopup();
-	if (popup && (popup.lohPreview || popup.lohHolding))
+	if (popup && popup.lohPreview)
 		return popup;
 	return NULL;
 }
 
-// The container the game's own A press would open the loot window for - nothing else.
+// Anything with a loot window behind it: every lootable in the game is a W3Container (chests, barrels, crates, corpses,
+// loot bags, herbs, beehives, treasure-hunt stashes). Armour and weapon stands are W3Containers too, but they hold
+// gear Geralt hangs up, not loot.
 function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 {
 	var container : W3Container;
 
 	if (!interaction)
 		return NULL;
-	if (interaction.GetActionName() != "Container")
-		return NULL;
 	container = (W3Container)interaction.GetEntity();
-	if (!container)
+	if (!container || (W3DisplayMount)container)
 		return NULL;
-	if (!container.LohShowsLootWindow())
+	if (!container.LohIsLootInteraction(interaction))
+		return NULL;
+	if (!container.LohHasLoot())
 		return NULL;
 	return container;
 }
 
-@addMethod(W3Container) public function LohShowsLootWindow() : bool
+// The container's own loot prompt - not its lock, medallion or examine prompts.
+@addMethod(W3Container) public function LohIsLootInteraction(interaction : CInteractionComponent) : bool
+{
+	var action : string;
+
+	if (lootInteractionComponent && interaction == lootInteractionComponent)
+		return true;
+	action = interaction.GetActionName();
+	return action == "Container" || action == "GatherHerbs";
+}
+
+@addMethod(W3Container) public function LohHasLoot() : bool
 {
 	var autoCorpseLoot : bool;
 
-	if (!isEnabled || isInteractionBlocked || disableLooting || lockedByKey)
-		return false;
-	if (skipInventoryPanel || usedByCiri || (W3Herb)this)
+	if (!isEnabled || isInteractionBlocked || disableLooting || lockedByKey || usedByCiri)
 		return false;
 	if (IsEmpty())
 		return false;
+	// the player's own Auto-loot corpses setting: those corpses are emptied on A, with no window by choice
 	autoCorpseLoot = theGame.GetInGameConfigWrapper().GetVarValue('Accessibility', 'AutoLoot') && (W3ActorRemains)this && !HasTag('lootbag');
 	if (autoCorpseLoot)
 		return false;
 	return true;
+}
+
+// What the A press does before it shows the window (container.ws OnInteraction), then the window itself - without
+// the press's animation: a corpse or animated chest would otherwise have Geralt kneel at everything he glances at.
+@addMethod(W3Container) public function LohOpenPreview()
+{
+	var schematics : array< name >;
+
+	if (StrLen(factOnContainerOpened) > 0 && !FactsDoesExist(factOnContainerOpened))
+	{
+		FactsAdd(factOnContainerOpened, 1, -1);
+	}
+	if (FactsQuerySum("NewGamePlus") > 0)
+	{
+		schematics = GetWitcherPlayer().GetCraftingSchematicsNames();
+		AddWolfNewGamePlusSchematics();
+		KeepWolfWitcherSetSchematics(schematics);
+	}
+	ProcessSpoonCollector(thePlayer);
+	InjectItemsOnLevels();
+	if (IsEmpty())
+		return;
+	theGame.LohSetPending(this);
+	ShowLoot();
+}
+
+// A herb (any refillable container) is only marked picked - empty look, regrow timer - by its take-everything path.
+@addMethod(W3RefillableContainer) public function LohMarkPickedIfEmpty()
+{
+	var inv : CInventoryComponent;
+
+	inv = GetInventory();
+	if (!isEmpty && (!inv || inv.IsEmpty(true)))
+	{
+		TakeAllItems();
+	}
 }
 
 @addMethod(CR4LootPopup) public function LohContainer() : W3Container
@@ -106,10 +204,13 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 
 	container = LohLootableTarget(newInteraction);
 
+	// Another lootable straight away: the preview moves to it. Anything else (no target, a door, a person) is left to
+	// the per-frame check, which closes the preview only once the target has stayed gone - running the interaction
+	// on A drops the target for a moment.
 	popup = LohGetPopup();
-	if (popup && popup.lohPreview && popup.LohContainer() != container)
+	if (popup && popup.lohPreview && container && popup.LohContainer() != container)
 	{
-		LohLog("looked away - closing the preview");
+		LohLog("another lootable - moving the preview");
 		theGame.ClosePopup('LootPopup');
 		popup = NULL;
 	}
@@ -118,31 +219,61 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 		return result;
 
 	LohLog("looking at " + container.GetReadableName() + " - opening the loot window");
-	theGame.LohSetPendingPreview(true);
-	container.OnInteraction("Container", thePlayer);
-	if (theGame.lohPendingPreview)
-	{
-		// the press path did not reach ShowLoot (a quest container, a lock): leave the flag for no one
-		theGame.LohSetPendingPreview(false);
-	}
+	container.LohOpenPreview();
 	return result;
 }
 
-// A while our window is open for this container: the window's own A has already taken the item - the game's
-// interact press on the same button must not open the window again.
-@wrapMethod(W3Container) function OnInteraction(actionName : string, activator : CEntity)
+// A while our window is open for this container: the window (or the mod's own A action) takes the item - the game's
+// interact press on the same button must not run as well. Every container class with its own A handler is wrapped:
+// an animated container's (corpses, loot bags, some chests) would otherwise play Geralt's kneel, which closes the
+// window and reopens it the normal way.
+function LohSwallowA(container : W3Container, activator : CEntity) : bool
 {
 	var popup : CR4LootPopup;
 
-	if (activator == thePlayer && !theGame.lohPendingPreview)
+	if (activator != thePlayer)
+		return false;
+	popup = LohGetOurPopup();
+	if (popup && popup.LohContainer() == container)
 	{
-		popup = LohGetOurPopup();
-		if (popup && popup.LohContainer() == this)
-		{
-			LohLog("A with the window up - left to the window");
-			return true;
-		}
+		LohLog("A with the window up - left to the window");
+		return true;
 	}
+	return false;
+}
+
+@wrapMethod(W3Container) function OnInteraction(actionName : string, activator : CEntity)
+{
+	if (LohSwallowA(this, activator))
+		return true;
+	return wrappedMethod(actionName, activator);
+}
+
+@wrapMethod(W3AnimatedContainer) function OnInteraction(actionName : string, activator : CEntity)
+{
+	if (LohSwallowA(this, activator))
+		return true;
+	return wrappedMethod(actionName, activator);
+}
+
+@wrapMethod(W3CookingPlace) function OnInteraction(actionName : string, activator : CEntity)
+{
+	if (LohSwallowA(this, activator))
+		return true;
+	return wrappedMethod(actionName, activator);
+}
+
+@wrapMethod(CBeehiveEntity) function OnInteraction(actionName : string, activator : CEntity)
+{
+	if (LohSwallowA(this, activator))
+		return true;
+	return wrappedMethod(actionName, activator);
+}
+
+@wrapMethod(W3BeehiveStandingEntity) function OnInteraction(actionName : string, activator : CEntity)
+{
+	if (LohSwallowA(this, activator))
+		return true;
 	return wrappedMethod(actionName, activator);
 }
 
@@ -150,9 +281,13 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 {
 	var result : bool;
 
-	lohPreview = theGame.lohPendingPreview;
-	theGame.LohSetPendingPreview(false);
-	lohHolding = false;
+	var data : W3LootPopupData;
+
+	data = (W3LootPopupData)GetPopupInitData();
+	lohPreview = data && theGame.LohTakePending(data.targetContainer);
+	lohLostSince = 0;
+	lohFlashTakeTime = 0;
+	lohPadTakePending = false;
 
 	result = wrappedMethod();
 
@@ -179,33 +314,35 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	return result;
 }
 
+// While the window is up, the face buttons belong to it. The player's own map decides what else X, Y and B do
+// (vanilla: attacks, jump, roll; a custom map: swords, signs, sprint, jump, diving), so every one of those is held
+// off here - through the game's action locks and, in the input wrappers below, by swallowing the press.
 @addMethod(CR4LootPopup) function LohBlockButtons(block : bool)
 {
-	// B is the window's close: stop the same press jumping or rolling. X and Y are caught in the input wrappers.
 	if (block)
 	{
 		thePlayer.BlockAction(EIAB_Jump, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_Roll, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_Climb, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_Sprint, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_DrawWeapon, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_Signs, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_LightAttacks, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_HeavyAttacks, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_Dive, 'LootOnHover');
 	}
 	else
 	{
 		thePlayer.UnblockAction(EIAB_Jump, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_Roll, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_Climb, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_Sprint, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_DrawWeapon, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_Signs, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_LightAttacks, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_HeavyAttacks, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_Dive, 'LootOnHover');
 	}
-}
-
-// Y: from the preview, open the window the normal way - Geralt stands still and the stick browses it.
-@addMethod(CR4LootPopup) public function LohEnterNormal()
-{
-	if (!lohPreview)
-		return;
-	lohPreview = false;
-	lohHolding = true;
-	thePlayer.BlockAction(EIAB_Movement, 'LootOnHover');
-	thePlayer.BlockAction(EIAB_RunAndSprint, 'LootOnHover');
-	theGame.ForceUIAnalog(true);
-	theGame.GetGuiManager().RequestMouseCursor(true);
-	LohLog("Y - window opened normally");
 }
 
 // X: take everything - the window's own Take All.
@@ -220,18 +357,12 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	var result : bool;
 	var wasOurs : bool;
 
-	wasOurs = lohPreview || lohHolding;
-	if (lohHolding)
-	{
-		thePlayer.UnblockAction(EIAB_Movement, 'LootOnHover');
-		thePlayer.UnblockAction(EIAB_RunAndSprint, 'LootOnHover');
-	}
-	if (wasOurs)
+	wasOurs = lohPreview;
+	if (lohPreview)
 	{
 		LohBlockButtons(false);
 	}
 	lohPreview = false;
-	lohHolding = false;
 
 	result = wrappedMethod();
 	if (wasOurs)
@@ -241,16 +372,12 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	return result;
 }
 
-// The game's loot movie puts Take All on Y. With a controller, Y here means "open the window normally" (from the
-// preview) and nothing once it is open; X is Take All. The keyboard's Space stays Take All.
+// The game's loot movie puts Take All on Y. With a controller, X is Take All here and Y does nothing.
+// The keyboard's Space stays Take All.
 @wrapMethod(CR4LootPopup) function OnPopupTakeAllItems()
 {
-	if ((lohPreview || lohHolding) && !theInput.LastUsedPCInput() && !lohTakingAll)
+	if (lohPreview && !theInput.LastUsedPCInput() && !lohTakingAll)
 	{
-		if (lohPreview)
-		{
-			LohEnterNormal();
-		}
 		return true;
 	}
 	wrappedMethod();
@@ -259,19 +386,57 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 
 @addField(CR4LootPopup) var lohTakingAll : bool;
 
-// Every frame from the HUD: the preview closes the moment it should no longer be up.
+@addField(CR4LootPopup) var lohLostSince : float;
+@addField(CR4LootPopup) var lohFlashTakeTime : float;
+@addField(CR4LootPopup) var lohPadTakeTime : float;
+@addField(CR4LootPopup) var lohPadTakePending : bool;
+
+// The window's own movie takes the highlighted item on A when it gets the press; the mod's A action takes it when the
+// movie did not, so one press takes one item either way.
+@wrapMethod(CR4LootPopup) function OnPopupTakeItem(Id : int)
+{
+	lohFlashTakeTime = theGame.GetEngineTimeAsSeconds();
+	lohPadTakePending = false;
+	return wrappedMethod(Id);
+}
+
+@addMethod(CR4LootPopup) public function LohPadTake()
+{
+	var now : float;
+
+	now = theGame.GetEngineTimeAsSeconds();
+	if (lohFlashTakeTime > 0 && now - lohFlashTakeTime < 0.3)
+		return;
+	lohPadTakeTime = now;
+	lohPadTakePending = true;
+}
+
+@addMethod(CR4LootPopup) function LohPadTakeCheck()
+{
+	var index : int;
+
+	if (!lohPadTakePending || theGame.GetEngineTimeAsSeconds() - lohPadTakeTime < 0.15)
+		return;
+	lohPadTakePending = false;
+	if (m_cachedItems.Size() == 0)
+		return;
+	index = Clamp(m_indexToSelect, 0, m_cachedItems.Size() - 1);
+	LohLog("A - take item " + index);
+	OnPopupTakeItem(index);
+}
+
+// Every frame from the HUD.
 @wrapMethod(CR4LootPopup) function UpdateInputContext()
 {
 	var target : W3Container;
+	var now : float;
 
 	if (!lohPreview)
 	{
-		if (!lohHolding)
-		{
-			wrappedMethod();
-		}
+		wrappedMethod();
 		return;
 	}
+	LohPadTakeCheck();
 	if (!LohPlayerCanHover())
 	{
 		LohLog("combat, a dialogue or a menu - closing the preview");
@@ -279,14 +444,28 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 		return;
 	}
 	target = LohLootableTarget(theGame.GetInteractionsManager().GetActiveInteraction());
-	if (target != _container)
+	now = theGame.GetEngineTimeAsSeconds();
+	if (target == _container)
+	{
+		lohLostSince = 0;
+		return;
+	}
+	if (lohLostSince <= 0)
+	{
+		lohLostSince = now;
+		return;
+	}
+	if (now - lohLostSince > 0.35)
 	{
 		LohLog("target lost - closing the preview");
 		ClosePopup();
 	}
 }
 
-// --- X and Y while the window is up ---------------------------------------------------------------------------------
+// --- the pad's buttons while the window is up ---------------------------------------------------------------------------------
+// The mod's own three actions on the pad's face buttons - LohTake (A), LohTakeAll (X), LohClose (B) -
+// added to input.settings beside the player's own bindings in Exploration and Swimming, so they follow the buttons
+// whatever the player's map puts there. Outside the window they do nothing.
 
 function LohTakeAllPressed() : bool
 {
@@ -305,27 +484,50 @@ function LohTakeAllPressed() : bool
 	return true;
 }
 
-function LohOpenNormallyPressed() : bool
+@wrapMethod(CPlayerInput) function Initialize(isFromLoad : bool, optional previousInput : CPlayerInput)
+{
+	wrappedMethod(isFromLoad, previousInput);
+	theInput.RegisterListener(this, 'OnLohTake', 'LohTake');
+	theInput.RegisterListener(this, 'OnLohTakeAll', 'LohTakeAll');
+	theInput.RegisterListener(this, 'OnLohClose', 'LohClose');
+}
+
+@addMethod(CPlayerInput) event OnLohTake(action : SInputAction)
 {
 	var popup : CR4LootPopup;
 
-	popup = LohGetOurPopup();
-	if (!popup)
-		return false;
-	popup.LohEnterNormal();
-	return true;
+	if (IsPressed(action))
+	{
+		popup = LohGetOurPopup();
+		if (popup)
+		{
+			popup.LohPadTake();
+		}
+	}
 }
 
+@addMethod(CPlayerInput) event OnLohClose(action : SInputAction)
+{
+	if (IsPressed(action) && LohGetOurPopup())
+	{
+		LohLog("B - close");
+		theGame.ClosePopup('LootPopup');
+	}
+}
+
+@addMethod(CPlayerInput) event OnLohTakeAll(action : SInputAction)
+{
+	if (IsPressed(action))
+	{
+		LohTakeAllPressed();
+	}
+}
+
+// The game's own handlers for whatever else sits on X, Y and B: swallowed while the window is up.
 @wrapMethod(CPlayerInput) function OnCbtAttackLight(action : SInputAction)
 {
 	if (LohGetOurPopup())
-	{
-		if (IsPressed(action))
-		{
-			LohTakeAllPressed();
-		}
 		return true;
-	}
 	return wrappedMethod(action);
 }
 
@@ -339,13 +541,7 @@ function LohOpenNormallyPressed() : bool
 @wrapMethod(CPlayerInput) function OnCbtAttackHeavy(action : SInputAction)
 {
 	if (LohGetOurPopup())
-	{
-		if (IsPressed(action))
-		{
-			LohOpenNormallyPressed();
-		}
 		return true;
-	}
 	return wrappedMethod(action);
 }
 
@@ -356,16 +552,73 @@ function LohOpenNormallyPressed() : bool
 	return wrappedMethod(action);
 }
 
-// Swimming: X is Dive Down (take all) and B is Dive Up (the window's close) - neither may move Geralt.
+@wrapMethod(CPlayerInput) function OnCommSteelSword(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommSilverSword(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnSelectSign(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommSprint(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommSprintToggle(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCbtRoll(action : SInputAction)
+{
+	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
 @wrapMethod(CPlayerInput) function OnDiving(action : SInputAction)
 {
 	if (LohGetOurPopup())
-	{
-		if (action.aName == 'DiveDown' && IsPressed(action))
-		{
-			LohTakeAllPressed();
-		}
 		return true;
-	}
 	return wrappedMethod(action);
+}
+
+// A herb emptied one item at a time through the window: mark it picked before the game checks it on close.
+@wrapMethod(W3Container) function OnContainerClosed()
+{
+	var refillable : W3RefillableContainer;
+
+	refillable = (W3RefillableContainer)this;
+	if (refillable)
+	{
+		refillable.LohMarkPickedIfEmpty();
+	}
+	wrappedMethod();
+}
+
+// The face buttons' other actions are held off while the window is up; the game would announce each attempt
+// ("You cannot do that now") - those messages are kept quiet while the window is up.
+@wrapMethod(CR4Player) function DisplayActionDisallowedHudMessage(action : EInputActionBlock, optional isCombatLock : bool, optional isPlaceLock : bool, optional isTimeLock : bool, optional isDangerous : bool)
+{
+	if (LohGetOurPopup())
+		return;
+	wrappedMethod(action, isCombatLock, isPlaceLock, isTimeLock, isDangerous);
 }

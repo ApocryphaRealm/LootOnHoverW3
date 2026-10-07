@@ -314,9 +314,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	return result;
 }
 
-// While the window is up, the face buttons belong to it. The player's own map decides what else X, Y and B do
-// (vanilla: attacks, jump, roll; a custom map: swords, signs, sprint, jump, diving), so every one of those is held
-// off here - through the game's action locks and, in the input wrappers below, by swallowing the press.
+// While the window is up, the face buttons and the D-pad belong to it. The player's own map decides what else X, Y and B
+// do (vanilla: attacks, jump, roll; a custom map: swords, signs, sprint, jump, diving) and what the D-pad does (the
+// quick wheel, potions, the quick item, focus), so every one of those is held off here - through the game's action
+// locks and, in the input wrappers below, by swallowing the press.
 @addMethod(CR4LootPopup) function LohBlockButtons(block : bool)
 {
 	if (block)
@@ -330,6 +331,11 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 		thePlayer.BlockAction(EIAB_LightAttacks, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_HeavyAttacks, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_Dive, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_RadialMenu, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_QuickSlots, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_UsableItem, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_ThrowBomb, 'LootOnHover');
+		thePlayer.BlockAction(EIAB_Crossbow, 'LootOnHover');
 	}
 	else
 	{
@@ -342,6 +348,11 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 		thePlayer.UnblockAction(EIAB_LightAttacks, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_HeavyAttacks, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_Dive, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_RadialMenu, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_QuickSlots, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_UsableItem, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_ThrowBomb, 'LootOnHover');
+		thePlayer.UnblockAction(EIAB_Crossbow, 'LootOnHover');
 	}
 }
 
@@ -597,6 +608,91 @@ function LohTakeAllPressed() : bool
 @wrapMethod(CPlayerInput) function OnDiving(action : SInputAction)
 {
 	if (LohGetOurPopup())
+		return true;
+	return wrappedMethod(action);
+}
+
+// The D-pad moves through the window's list; whatever the player's map also puts there - the quick wheel, the potions,
+// the quick item, focus - is swallowed while the window is up. Only a press that began with the window up is held off,
+// release and all: a button already held when the window opened gets its release, so nothing is left half done.
+@addField(CPlayerInput) var lohHeldOff : array<name>;
+
+@addMethod(CPlayerInput) function LohHoldOff(action : SInputAction) : bool
+{
+	if (IsReleased(action))
+	{
+		if (lohHeldOff.Contains(action.aName))
+		{
+			lohHeldOff.Remove(action.aName);
+			return true;
+		}
+		return false;
+	}
+	if (!LohGetOurPopup())
+	{
+		// a press with the window down: any release still owed from an earlier window is stale
+		lohHeldOff.Remove(action.aName);
+		return false;
+	}
+	if (IsPressed(action) && !lohHeldOff.Contains(action.aName))
+	{
+		lohHeldOff.PushBack(action.aName);
+	}
+	return true;
+}
+
+@wrapMethod(CR4HudModuleRadialMenu) function OnRadialMenu(action : SInputAction)
+{
+	if (thePlayer.GetInputHandler().LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommDrinkPotion1(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommDrinkPotion2(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommDrinkpotionUpperHeld(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCommDrinkpotionLowerHeld(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCbtThrowItem(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnCbtThrowItemHold(action : SInputAction)
+{
+	if (LohHoldOff(action))
+		return true;
+	return wrappedMethod(action);
+}
+
+@wrapMethod(CPlayerInput) function OnExpFocus(action : SInputAction)
+{
+	if (LohHoldOff(action))
 		return true;
 	return wrappedMethod(action);
 }

@@ -172,7 +172,60 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	if (IsEmpty())
 		return;
 	theGame.LohSetPending(this);
+	theGame.LohQuietFor(1.0);
 	ShowLoot();
+}
+
+// --- no rumble on hover ----------------------------------------------------------------------------------------------
+// From the moment the window is asked for until half a second after it closes, the pad's vibration is switched off
+// (theGame.SetVibrationEnabled, the switch the game's quests use) and then put back as it was; a player whose own
+// vibration setting is off is never touched. A take (A or X) lets the game's own take rumble through for a moment -
+// the vanilla game rumbles when herbs and armour are taken.
+@addField(CR4Game) var lohRumbleOff : bool;
+@addField(CR4Game) var lohQuietUntil : float;
+@addField(CR4Game) var lohTakeRumbleUntil : float;
+
+@addMethod(CR4Game) public function LohQuietFor(seconds : float)
+{
+	lohQuietUntil = MaxF(lohQuietUntil, GetEngineTimeAsSeconds() + seconds);
+	LohUpdateRumble();
+}
+
+@addMethod(CR4Game) public function LohLetTakeRumble()
+{
+	lohTakeRumbleUntil = GetEngineTimeAsSeconds() + 0.75;
+	LohUpdateRumble();
+}
+
+@addMethod(CR4Game) public function LohUpdateRumble()
+{
+	var now : float;
+	var quiet : bool;
+
+	now = GetEngineTimeAsSeconds();
+	quiet = (LohGetOurPopup() || now < lohQuietUntil) && now >= lohTakeRumbleUntil;
+	if (quiet && !lohRumbleOff && IsVibrationEnabled())
+	{
+		SetVibrationEnabled(false);
+		lohRumbleOff = true;
+		LohLog("rumble off");
+	}
+	else if (!quiet && lohRumbleOff)
+	{
+		SetVibrationEnabled(true);
+		lohRumbleOff = false;
+		LohLog("rumble back on");
+	}
+}
+
+// Every HUD frame, window or not: puts the rumble back once the quiet time is over, and off again after a take.
+@wrapMethod(CR4ScriptedHud) function UpdateLootPopupContext()
+{
+	wrappedMethod();
+	if (theGame.lohRumbleOff || LohGetOurPopup())
+	{
+		theGame.LohUpdateRumble();
+	}
 }
 
 // A herb (any refillable container) is only marked picked - empty look, regrow timer - by its take-everything path.
@@ -371,6 +424,7 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	wasOurs = lohPreview;
 	if (lohPreview)
 	{
+		theGame.LohQuietFor(0.5);
 		LohBlockButtons(false);
 	}
 	lohPreview = false;
@@ -391,6 +445,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	{
 		return true;
 	}
+	if (lohPreview)
+	{
+		theGame.LohLetTakeRumble();
+	}
 	wrappedMethod();
 	return true;
 }
@@ -408,6 +466,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 {
 	lohFlashTakeTime = theGame.GetEngineTimeAsSeconds();
 	lohPadTakePending = false;
+	if (lohPreview)
+	{
+		theGame.LohLetTakeRumble();
+	}
 	return wrappedMethod(Id);
 }
 

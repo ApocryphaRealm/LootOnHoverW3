@@ -13,3 +13,6 @@
 In game (2026-10-06, a dropped loot bag, the owner's controller map): opens on look; A took one item; X took the rest
 and closed it; B closed it and it stayed closed; walking away closed it and coming back reopened it - no sword drawn,
 no jump, no kneel. Not yet seen in game: this build's Y, a chest, a herb, swimming, combat.
+
+### Changed
+- No controller rumble on hover: while the window opened by looking is up, and for half a second after it closes, the pad's vibration is switched off and then put back as it was (a player whose vibration setting is off is never touched). Taking items (A, X) still gives the game's own take rumble. (2026-10-13, untested)

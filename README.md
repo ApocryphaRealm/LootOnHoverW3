@@ -37,6 +37,10 @@ closed; the shipped installer is still to come.
 - The per-frame check closes the window once the target has stayed gone for a third of a second (running an
   interaction drops the target for a moment).
 - A herb emptied one item at a time is marked picked, as its take-everything path does.
+- No rumble on hover: from the moment the window is asked for until half a second after it closes, the pad's
+  vibration is off (`theGame.SetVibrationEnabled`, the switch the game's quests use), then put back as it was; a
+  player whose vibration setting is off is never touched. A take lets the game's own take rumble through (herbs and
+  armour rumble in the vanilla game).
 
 Log channel `LootOnHover` (launch with `-debugscripts`). The test probe (`probe/`, never shipped) shows each log
 line on screen.

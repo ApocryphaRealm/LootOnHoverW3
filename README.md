@@ -29,11 +29,15 @@ closed; the shipped installer is still to come.
 - `CInteractionsManager.OnGuiInteractionChanged` (the game's "what Geralt is looking at" event) opens the window when
   the target is a lootable container: the container's own pre-window steps (quest facts, NG+ schematics), then its
   window - without the press animation, so Geralt never kneels at a corpse he only glanced at.
-- `CR4LootPopup.OnConfigUI` gives back what the game's window takes: the input context (EMPTY_CONTEXT freezes
-  Geralt), the stick and the cursor.
+- `CR4LootPopup.OnConfigUI` / `OnClosingPopup` run the game's own steps for a window opened by looking, less four:
+  the open and close sounds (`gui_loot_popup_open` / `gui_loot_popup_close`), the input context (EMPTY_CONTEXT
+  freezes Geralt), the UI stick and the cursor - so it opens and closes silently and Geralt keeps walking. The loot
+  movie's own sounds (`OnPlaySoundEvent`) are quiet for its first half second. Take sounds are untouched.
 - While it is up, whatever else the player's map puts on A, X, Y and B (attacks, swords, signs, sprint, jump, diving,
   the container's own A press) is held off - through the game's action locks and by swallowing the press - and the
   game's "You cannot do that now" for those is kept quiet.
+  Sprint is held off at `CR4Player.CanSprint`, not with an EIAB_Sprint lock: that lock makes the game treat Geralt as
+  indoors and switch to its close indoor camera (`UpdateCameraInterior`), which zoomed in each time the window opened.
 - The per-frame check closes the window once the target has stayed gone for a third of a second (running an
   interaction drops the target for a moment).
 - A herb emptied one item at a time is marked picked, as its take-everything path does.

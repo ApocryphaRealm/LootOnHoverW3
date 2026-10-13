@@ -4,6 +4,7 @@
 //
 //   Opened by looking (preview): Geralt keeps walking and swimming.
 //     A takes the highlighted item, X takes everything, B closes it. Y does nothing.
+//     It opens and closes with no sound, no rumble and no camera move; taking items sounds as usual.
 //
 // Annotations only: no game script is replaced. The window's own buttons (A take, B close) still come from the
 // game's loot movie; X and Y are the mod's own two input actions on those buttons, and whatever else the player's
@@ -332,8 +333,6 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 
 @wrapMethod(CR4LootPopup) function OnConfigUI()
 {
-	var result : bool;
-
 	var data : W3LootPopupData;
 
 	data = (W3LootPopupData)GetPopupInitData();
@@ -342,35 +341,85 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	lohFlashTakeTime = 0;
 	lohPadTakePending = false;
 
-	result = wrappedMethod();
-
-	if (lohPreview)
+	if (!lohPreview)
 	{
-		if (!_container)
-		{
-			// the game closed it (a dialogue, a menu): nothing to undo
-			lohPreview = false;
-			return result;
-		}
-		// The game's window freezes Geralt (EMPTY_CONTEXT), hands the stick to the window and shows the cursor.
-		// The preview gives all three back, so he keeps walking with it open.
-		if (inputContextSet && theInput.GetContext() == 'EMPTY_CONTEXT')
-		{
-			theInput.RestoreContext('EMPTY_CONTEXT', false);
-		}
-		inputContextSet = false;
-		theGame.ForceUIAnalog(false);
-		theGame.GetGuiManager().RequestMouseCursor(false);
-		LohBlockButtons(true);
-		LohLog("preview open - context " + theInput.GetContext());
+		return wrappedMethod();
 	}
-	return result;
+
+	// The preview: the game's own OnConfigUI less three things - no "gui_loot_popup_open" sound, no EMPTY_CONTEXT
+	// (the game's window freezes Geralt), and no UI stick or mouse cursor - so the window opens silently and Geralt
+	// keeps walking with it open. Everything else is the game's own, in the game's order.
+	super.OnConfigUI();
+	LohConfigPreview();
+	if (!_container)
+	{
+		// the game closed it (a dialogue, a menu): nothing to undo
+		lohPreview = false;
+		return true;
+	}
+	lohOpenTime = theGame.GetEngineTimeAsSeconds();
+	LohBlockButtons(true);
+	LohLog("preview open (silent) - context " + theInput.GetContext());
+	return true;
+}
+
+@addField(CR4LootPopup) var lohOpenTime : float;
+
+// CR4LootPopup.OnConfigUI after its super call, without the open sound, the input context, ForceUIAnalog and the cursor.
+@addMethod(CR4LootPopup) function LohConfigPreview()
+{
+	var lootPopupData : W3LootPopupData;
+	var targetSize : float;
+
+	setupFunctions();
+	lootPopupData = (W3LootPopupData)GetPopupInitData();
+	_tooltipDataProvider = new W3TooltipComponent in this;
+	inputContextSet = false;
+
+	if (lootPopupData && lootPopupData.targetContainer && !theGame.IsDialogOrCutscenePlaying() && !theGame.GetGuiManager().IsAnyMenu())
+	{
+		_container = lootPopupData.targetContainer;
+		_tooltipDataProvider.initialize(thePlayer.GetInventory(), m_flashValueStorage);
+		PopulateData();
+		SignalLootingReactionEvent();
+		if (StringToInt(theGame.GetInGameConfigWrapper().GetVarValue('Hud', 'HudSize'), 0) == 0)
+		{
+			targetSize = 0.85;
+		}
+		else
+		{
+			targetSize = 1;
+		}
+		m_fxSetWindowScale.InvokeSelfOneArg(FlashArgNumber(targetSize));
+	}
+	else
+	{
+		ClosePopup();
+	}
+}
+
+// The loot movie's own sounds (the list's highlight as it first selects a row) are kept quiet for the first half second
+// of a preview: the window comes up with no sound at all. Moving through the list afterwards sounds as usual.
+@wrapMethod(CR4PopupBase) function OnPlaySoundEvent(soundName : string)
+{
+	var loot : CR4LootPopup;
+
+	loot = (CR4LootPopup)this;
+	if (loot && loot.lohPreview && theGame.GetEngineTimeAsSeconds() - loot.lohOpenTime < 0.5)
+	{
+		return true;
+	}
+	return wrappedMethod(soundName);
 }
 
 // While the window is up, the face buttons and the D-pad belong to it. The player's own map decides what else X, Y and B
 // do (vanilla: attacks, jump, roll; a custom map: swords, signs, sprint, jump, diving) and what the D-pad does (the
 // quick wheel, potions, the quick item, focus), so every one of those is held off here - through the game's action
 // locks and, in the input wrappers below, by swallowing the press.
+// Sprint is NOT an action lock: a blocked EIAB_Sprint makes the game treat Geralt as indoors (PlayerTick sets
+// movementLockType = PMLT_NoSprint, and the Exploration state's camera tick then runs UpdateCameraInterior - the close
+// indoor camera, 1.5 m behind him), which zoomed the camera in every time the window opened. CanSprint is held off
+// instead (below), which leaves the camera alone.
 @addMethod(CR4LootPopup) function LohBlockButtons(block : bool)
 {
 	if (block)
@@ -378,7 +427,6 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 		thePlayer.BlockAction(EIAB_Jump, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_Roll, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_Climb, 'LootOnHover');
-		thePlayer.BlockAction(EIAB_Sprint, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_DrawWeapon, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_Signs, 'LootOnHover');
 		thePlayer.BlockAction(EIAB_LightAttacks, 'LootOnHover');
@@ -395,6 +443,7 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 		thePlayer.UnblockAction(EIAB_Jump, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_Roll, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_Climb, 'LootOnHover');
+		// a save made with an earlier build of this mod may still carry its sprint lock: lift it
 		thePlayer.UnblockAction(EIAB_Sprint, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_DrawWeapon, 'LootOnHover');
 		thePlayer.UnblockAction(EIAB_Signs, 'LootOnHover');
@@ -418,7 +467,6 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 
 @wrapMethod(CR4LootPopup) function OnClosingPopup()
 {
-	var result : bool;
 	var wasOurs : bool;
 
 	wasOurs = lohPreview;
@@ -429,12 +477,43 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	}
 	lohPreview = false;
 
-	result = wrappedMethod();
-	if (wasOurs)
+	if (!wasOurs)
 	{
-		LohLog("window closed");
+		return wrappedMethod();
 	}
-	return result;
+	// The preview closes the game's way less the "gui_loot_popup_close" sound and the input context, cursor and UI
+	// stick it never took.
+	super.OnClosingPopup();
+	LohClosePreview();
+	LohLog("window closed (silent)");
+	return true;
+}
+
+// CR4LootPopup.OnClosingPopup after its super call, without the close sound, the context restore, the cursor and ForceUIAnalog.
+@addMethod(CR4LootPopup) function LohClosePreview()
+{
+	var i : int;
+
+	SignalContainerClosedEvent();
+	if (ShouldProcessTutorial('TutorialLootWindow'))
+	{
+		FactsAdd("tutorial_container_close", 1, 1);
+	}
+	if (_container)
+	{
+		_container.OnContainerClosed();
+	}
+	for (i = 0; i < m_mergedContainers.Size(); i += 1)
+	{
+		if (m_mergedContainers[i])
+		{
+			m_mergedContainers[i].OnContainerClosed();
+		}
+	}
+	if (_tooltipDataProvider)
+	{
+		delete _tooltipDataProvider;
+	}
 }
 
 // The game's loot movie puts Take All on Y. With a controller, X is Take All here and Y does nothing.
@@ -658,6 +737,15 @@ function LohTakeAllPressed() : bool
 	if (LohGetOurPopup())
 		return true;
 	return wrappedMethod(action);
+}
+
+// No sprinting while the window is up - held off at the game's own sprint check rather than by an EIAB_Sprint lock,
+// which would switch the camera to the indoor one (see LohBlockButtons). W3PlayerWitcher's CanSprint calls this first.
+@wrapMethod(CR4Player) function CanSprint(speed : float) : bool
+{
+	if (LohGetOurPopup())
+		return false;
+	return wrappedMethod(speed);
 }
 
 @wrapMethod(CPlayerInput) function OnCbtRoll(action : SInputAction)

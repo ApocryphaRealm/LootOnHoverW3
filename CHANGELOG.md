@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.1 - 2026-10-14 - untested
+
+### Changed
+- On a controller, Y now takes everything - the button the loot window's own hint shows for Take All. X no longer takes
+  everything; while the window is up X does nothing. The owner, 2026-10-14: "pressing X in the loot menu takes all
+  instead of Y, when Y should take all." (2026-10-14)
+- tools/bindings.py writes take-all on Y (`IK_Pad_Y_TRIANGLE=(Action=LohTakeAll)`) and, run over a 1.0.0 install,
+  replaces the old X line; two runs in the same second no longer share one backup name. (2026-10-14)
+### Fixed
+- The press that closes the window no longer does the button's other job on the way out: Y takes everything and closes
+  the window in the same press, and on Modern Control Remapping's map Y is also Jump and climb (Dive Up when swimming).
+  A face-button press in the tenth of a second after the window closes is held off, and Jump and climbing stay held off
+  until their buttons are let go. This covers keyboard Space (Take All, and Jump on the vanilla map) too, and B (close,
+  and Sprint on that map). (2026-10-14)
+
+Keyboard unchanged: E takes, Space takes everything, Esc closes. Dry compile 2026-10-14: COMPILE OK over the game's
+scripts alone, and over the owner's ticked MO2 set (31 script folders, Modern Control Remapping's own Jump wrappers
+among them) with the installed 1.0.0 left out.
+
 ## 1.0.0 - 2026-10-13 - working
 
 - The loot window opens when Geralt looks at anything lootable - chests, barrels, crates, corpses, loot bags, herbs -

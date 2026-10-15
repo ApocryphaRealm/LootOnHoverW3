@@ -3,12 +3,14 @@
 // The buttons below only do these things while the window is up; otherwise every button is the game's own.
 //
 //   Opened by looking (preview): Geralt keeps walking and swimming.
-//     A takes the highlighted item, X takes everything, B closes it. Y does nothing.
-//     It opens and closes with no sound, no rumble and no camera move; taking items sounds as usual.
+//     A takes the highlighted item, Y takes everything (the button the window's own hint shows), B closes it.
+//     X does nothing. It opens and closes with no sound, no rumble and no camera move; taking items sounds as usual.
 //
 // Annotations only: no game script is replaced. The window's own buttons (A take, B close) still come from the
-// game's loot movie; X and Y are the mod's own two input actions on those buttons, and whatever else the player's
-// map puts on X, Y and B is held off while the window is up. Log channel: LootOnHover (-debugscripts).
+// game's loot movie; A, Y and B are also the mod's own three input actions (LohTake, LohTakeAll, LohClose), and
+// whatever else the player's map puts on A, X, Y and B is held off while the window is up - and, for the press that
+// closes it (Y takes everything and closes), until that press is over, so Y never jumps or climbs on the way out.
+// Log channel: LootOnHover (-debugscripts).
 
 // The container a preview was just asked for, and when: the window may build a frame later, so its OnConfigUI
 // takes the preview only when it is for this container and the request is fresh.
@@ -219,13 +221,18 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	}
 }
 
-// Every HUD frame, window or not: puts the rumble back once the quiet time is over, and off again after a take.
+// Every HUD frame, window or not: puts the rumble back once the quiet time is over, and off again after a take; ends
+// the hold on Jump and climbing once the press that closed the window is over.
 @wrapMethod(CR4ScriptedHud) function UpdateLootPopupContext()
 {
 	wrappedMethod();
 	if (theGame.lohRumbleOff || LohGetOurPopup())
 	{
 		theGame.LohUpdateRumble();
+	}
+	if (theGame.lohCloseHold)
+	{
+		theGame.LohUpdateCloseHold();
 	}
 }
 
@@ -458,10 +465,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	}
 }
 
-// X: take everything - the window's own Take All.
+// Y: take everything - the window's own Take All.
 @addMethod(CR4LootPopup) public function LohTakeAll()
 {
-	LohLog("X - take all");
+	LohLog("Y - take all");
 	OnPopupTakeAllItems();
 }
 
@@ -473,6 +480,7 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	if (lohPreview)
 	{
 		theGame.LohQuietFor(0.5);
+		theGame.LohStartCloseHold();
 		LohBlockButtons(false);
 	}
 	lohPreview = false;
@@ -516,8 +524,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	}
 }
 
-// The game's loot movie puts Take All on Y. With a controller, X is Take All here and Y does nothing.
-// The keyboard's Space stays Take All.
+// The game's loot movie puts Take All on Y, and its button hint shows Y (popup_loot.swf, HudLootItemModule
+// setupFeedbackButtons: GAMEPAD_Y, KeyCode.SPACE). With a controller the mod's own LohTakeAll action on Y takes
+// everything (it reaches the window whether or not the movie gets the press); the movie's own Y press is not passed on,
+// so one press takes once. The keyboard's Space stays the movie's own Take All.
 @wrapMethod(CR4LootPopup) function OnPopupTakeAllItems()
 {
 	if (lohPreview && !theInput.LastUsedPCInput() && !lohTakingAll)
@@ -614,10 +624,98 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	}
 }
 
+// --- the press that closes the window ---------------------------------------------------------------------------------
+// Y takes everything and closes the window inside its own press (B closes it too). The game then goes on handling that
+// same press with the window gone - the other actions the player's map puts on the button (Jump, climbing, Axii,
+// swimming up, sprint) - and the exploration code polls Jump and climbing every frame, while the action locks have
+// just come off. So after one of the mod's windows closes:
+//   - a press that arrives within a tenth of a second (the closing press's own dispatch) is held off, and
+//   - Jump and climbing stay held off until their buttons are let go: a press that began with the window up never
+//     jumps or climbs. The keyboard's Space (Take All, and Jump on the vanilla map) gets the same.
+// The per-frame HUD check ends the hold once both are up, so a later press is never caught by it.
+@addField(CR4Game) var lohClosedAt : float;
+@addField(CR4Game) var lohCloseHold : bool;
+
+@addMethod(CR4Game) public function LohStartCloseHold()
+{
+	lohClosedAt = GetEngineTimeAsSeconds();
+	lohCloseHold = true;
+}
+
+@addMethod(CR4Game) public function LohJustClosed() : bool
+{
+	return lohCloseHold && GetEngineTimeAsSeconds() - lohClosedAt < 0.1;
+}
+
+@addMethod(CR4Game) public function LohUpdateCloseHold()
+{
+	if (!lohCloseHold || LohJustClosed())
+		return;
+	if (theInput.IsActionPressed('Jump') || theInput.IsActionPressed('ExplorationInteraction'))
+		return;
+	lohCloseHold = false;
+	LohLog("the closing press is over - jump and climb free again");
+}
+
+@addMethod(CR4Game) public function LohJumpHeldBack() : bool
+{
+	if (LohGetOurPopup())
+		return true;
+	LohUpdateCloseHold();
+	return lohCloseHold;
+}
+
+// A face-button action of the game's: held off while the window is up (press and release alike), and a press that
+// arrives in the moment after one of the mod's windows closed (the press that closed it).
+function LohHoldPress(action : SInputAction) : bool
+{
+	if (LohGetOurPopup())
+		return true;
+	return IsPressed(action) && theGame.LohJustClosed();
+}
+
+// Jump and climbing are polled by the exploration code (CExplorationInput), not sent as presses.
+@wrapMethod(CExplorationInput) function IsJumpJustPressed() : bool
+{
+	if (theGame.LohJumpHeldBack())
+		return false;
+	return wrappedMethod();
+}
+
+@wrapMethod(CExplorationInput) function IsJumpPressed() : bool
+{
+	if (theGame.LohJumpHeldBack())
+		return false;
+	return wrappedMethod();
+}
+
+@wrapMethod(CExplorationInput) function IsExplorationJustPressed() : bool
+{
+	if (theGame.LohJumpHeldBack())
+		return false;
+	return wrappedMethod();
+}
+
+@wrapMethod(CExplorationInput) function IsExplorationPressed() : bool
+{
+	if (theGame.LohJumpHeldBack())
+		return false;
+	return wrappedMethod();
+}
+
+// seconds since the climb button was last pressed: "long ago" while it is held off
+@wrapMethod(CExplorationInput) function GetExplorationLastJustPressedTime() : float
+{
+	if (theGame.LohJumpHeldBack())
+		return 1000.0;
+	return wrappedMethod();
+}
+
 // --- the pad's buttons while the window is up ---------------------------------------------------------------------------------
-// The mod's own three actions on the pad's face buttons - LohTake (A), LohTakeAll (X), LohClose (B) -
+// The mod's own three actions on the pad's face buttons - LohTake (A), LohTakeAll (Y), LohClose (B) -
 // added to input.settings beside the player's own bindings in Exploration and Swimming, so they follow the buttons
-// whatever the player's map puts there. Outside the window they do nothing.
+// whatever the player's map puts there. Outside the window they do nothing. X has no action of the mod's: while the
+// window is up whatever the map puts on X is held off and X does nothing.
 
 function LohTakeAllPressed() : bool
 {
@@ -675,66 +773,67 @@ function LohTakeAllPressed() : bool
 	}
 }
 
-// The game's own handlers for whatever else sits on X, Y and B: swallowed while the window is up.
+// The game's own handlers for whatever else sits on A, X, Y and B: swallowed while the window is up, and the press that
+// closed it (LohHoldPress).
 @wrapMethod(CPlayerInput) function OnCbtAttackLight(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCbtSpecialAttackLight(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCbtAttackHeavy(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCbtSpecialAttackHeavy(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCommSteelSword(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCommSilverSword(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnSelectSign(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCommSprint(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnCommSprintToggle(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
@@ -750,14 +849,14 @@ function LohTakeAllPressed() : bool
 
 @wrapMethod(CPlayerInput) function OnCbtRoll(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }
 
 @wrapMethod(CPlayerInput) function OnDiving(action : SInputAction)
 {
-	if (LohGetOurPopup())
+	if (LohHoldPress(action))
 		return true;
 	return wrappedMethod(action);
 }

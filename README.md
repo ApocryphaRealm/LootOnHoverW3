@@ -54,6 +54,11 @@ and it replaces that line with the Y one, in both sections. The shipped installe
   climbs; keyboard Space (Take All, and Jump on the vanilla map) gets the same.
   Sprint is held off at `CR4Player.CanSprint`, not with an EIAB_Sprint lock: that lock makes the game treat Geralt as
   indoors and switch to its close indoor camera (`UpdateCameraInterior`), which zoomed in each time the window opened.
+- The game's Loot merge setting (Options > Gameplay, `Gameplay` / `LootMergeEnabled`) applies as it does to the A
+  press: the preview fills its list with the game's own `CR4LootPopup.PopulateData`, which with the setting on gathers
+  every body within 15 m (not loot bags) into a body's window. A body that is in the window counts as its target, so
+  looking from one merged body to another keeps the window, and emptying the looked-at body first does not close it
+  while the others' items are still listed.
 - The per-frame check closes the window once the target has stayed gone for a third of a second (running an
   interaction drops the target for a moment).
 - A herb emptied one item at a time is marked picked, as its take-everything path does.

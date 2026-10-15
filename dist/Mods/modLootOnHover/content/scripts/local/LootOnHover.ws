@@ -5,6 +5,7 @@
 //   Opened by looking (preview): Geralt keeps walking and swimming.
 //     A takes the highlighted item, Y takes everything (the button the window's own hint shows), B closes it.
 //     X does nothing. It opens and closes with no sound, no rumble and no camera move; taking items sounds as usual.
+//     The game's Loot merge setting applies as it does to the A press: on, a body's window lists every body nearby.
 //
 // Annotations only: no game script is replaced. The window's own buttons (A take, B close) still come from the
 // game's loot movie; A, Y and B are also the mod's own three input actions (LohTake, LohTakeAll, LohClose), and
@@ -253,6 +254,33 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	return _container;
 }
 
+// --- the game's Loot merge setting ----------------------------------------------------------------------------------
+// Options > Gameplay "Loot merge" (gameplay.xml var Gameplay / LootMergeEnabled) is applied by the window itself: the
+// game's own CR4LootPopup.PopulateData - which the preview calls unchanged - gathers every body within 15 m into the
+// list when the looked-at container is a body (W3ActorRemains, not a loot bag) and the setting is on, and keeps them in
+// m_mergedContainers; take, take all (TakeAllAction) and close (OnContainerClosed) already walk that list. On, the hover
+// window shows the merged loot exactly as the A press would; off, only the one container.
+// What the mod adds: a body that is in this window counts as this window's target. Looking from one merged body to the
+// next keeps the window instead of reopening it, and the looked-at body running out of items (its own items are listed
+// first) does not close the window while the other bodies' items are still in it - the window closes itself when its
+// list is empty, as the game's does.
+@addMethod(CR4LootPopup) public function LohHolds(container : W3Container) : bool
+{
+	return container && (container == _container || m_mergedContainers.Contains(container));
+}
+
+@addMethod(CR4LootPopup) function LohIsOurTarget(interaction : CInteractionComponent) : bool
+{
+	var container : W3Container;
+
+	if (!interaction)
+		return false;
+	container = (W3Container)interaction.GetEntity();
+	if (!container || !container.LohIsLootInteraction(interaction))
+		return false;
+	return LohHolds(container);
+}
+
 // --- opening on hover -------------------------------------------------------------------------------------------
 
 @wrapMethod(CInteractionsManager) function OnGuiInteractionChanged(newInteraction : CInteractionComponent)
@@ -265,11 +293,12 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 
 	container = LohLootableTarget(newInteraction);
 
-	// Another lootable straight away: the preview moves to it. Anything else (no target, a door, a person) is left to
-	// the per-frame check, which closes the preview only once the target has stayed gone - running the interaction
-	// on A drops the target for a moment.
+	// Another lootable straight away: the preview moves to it - unless it is already in this window (a body the game's
+	// Loot merge setting gathered into it). Anything else (no target, a door, a person) is left to the per-frame check,
+	// which closes the preview only once the target has stayed gone - running the interaction on A drops the target for
+	// a moment.
 	popup = LohGetPopup();
-	if (popup && popup.lohPreview && container && popup.LohContainer() != container)
+	if (popup && popup.lohPreview && container && !popup.LohHolds(container))
 	{
 		LohLog("another lootable - moving the preview");
 		theGame.ClosePopup('LootPopup');
@@ -366,7 +395,7 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 	}
 	lohOpenTime = theGame.GetEngineTimeAsSeconds();
 	LohBlockButtons(true);
-	LohLog("preview open (silent) - context " + theInput.GetContext());
+	LohLog("preview open (silent) - context " + theInput.GetContext() + ", Loot merge " + theGame.GetInGameConfigWrapper().GetVarValue('Gameplay', 'LootMergeEnabled') + ", " + IntToString(m_mergedContainers.Size()) + " nearby container(s) merged in");
 	return true;
 }
 
@@ -590,7 +619,6 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 // Every frame from the HUD.
 @wrapMethod(CR4LootPopup) function UpdateInputContext()
 {
-	var target : W3Container;
 	var now : float;
 
 	if (!lohPreview)
@@ -605,9 +633,10 @@ function LohSwallowA(container : W3Container, activator : CEntity) : bool
 		ClosePopup();
 		return;
 	}
-	target = LohLootableTarget(theGame.GetInteractionsManager().GetActiveInteraction());
 	now = theGame.GetEngineTimeAsSeconds();
-	if (target == _container)
+	// still looking at this window's container, or at a body merged into it - emptied or not (the window closes itself
+	// when its whole list is taken)
+	if (LohIsOurTarget(theGame.GetInteractionsManager().GetActiveInteraction()))
 	{
 		lohLostSince = 0;
 		return;

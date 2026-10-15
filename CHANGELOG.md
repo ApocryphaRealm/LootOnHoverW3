@@ -14,8 +14,17 @@
   A face-button press in the tenth of a second after the window closes is held off, and Jump and climbing stay held off
   until their buttons are let go. This covers keyboard Space (Take All, and Jump on the vanilla map) too, and B (close,
   and Sprint on that map). (2026-10-14)
+- The game's Loot merge setting (Options > Gameplay, var Gameplay / LootMergeEnabled) now works fully in the hover
+  window. The window already gathered nearby bodies through the game's own list builder (CR4LootPopup.PopulateData:
+  bodies within 15 m, not loot bags, setting on). But with merge on, the window closed as soon as the looked-at body
+  was emptied, though the other bodies' items were still listed, and looking from one merged body to the next closed
+  and reopened it. A body that is in the window now counts as the window's target, so the merged list can be taken one
+  item at a time to the end. Off: only the one container, as before. The project owner, 2026-10-14: "Make sure that the
+  loot merge setting in the game applies to the loot window that our mod alters." (2026-10-15)
 
-Keyboard unchanged: E takes, Space takes everything, Esc closes. Dry compile 2026-10-14: COMPILE OK over the game's
+Keyboard unchanged: E takes, Space takes everything, Esc closes. The open line in the log now names the Loot merge
+setting and how many nearby containers were merged in. Dry compile 2026-10-15 (loot merge build): COMPILE OK over the
+game's scripts and over the ticked MO2 set with both installed Loot on Hover folders left out. Dry compile 2026-10-14: COMPILE OK over the game's
 scripts alone, and over the owner's ticked MO2 set (31 script folders, Modern Control Remapping's own Jump wrappers
 among them) with the installed 1.0.0 left out.
 

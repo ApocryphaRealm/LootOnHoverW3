@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.1 - 2026-10-14 - untested
+## 1.0.1 - 2026-10-14 - working (the 'loot merge' build, c51cfae; the owner's release order 2026-10-15: "post loot on hover since it has the loot merge fix")
 
 ### Changed
 - On a controller, Y now takes everything - the button the loot window's own hint shows for Take All. X no longer takes

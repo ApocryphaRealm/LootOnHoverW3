@@ -128,7 +128,21 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 		return NULL;
 	if (!container.LohHasLoot())
 		return NULL;
+	if (container.LohIsStealing())
+		return NULL;
 	return container;
+}
+
+// Stealing: the game's own test (LootPopup.SignalLootingReactionEvent / SignalStealingReactionEvent, 5.01 scripts): a
+// container whose disableStealing is off (owned: the game shows its red steal prompt and guards react), not holding a
+// quest item, not a herb, not a body. LOH opens no window for it - the game's own interaction is all the player gets.
+@addMethod(W3Container) public function LohIsStealing() : bool
+{
+	if (disableStealing || HasQuestItem())
+		return false;
+	if ((W3Herb)this || (W3ActorRemains)this)
+		return false;
+	return true;
 }
 
 // The container's own loot prompt - not its lock, medallion or examine prompts.

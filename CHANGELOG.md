@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.2 - 2026-10-16 - untested
+## 1.0.2 - 2026-10-16 - working (the owner, 2026-10-16: "Update Nexus with the loot on hover build.")
 
 ### Added
 - A settings page, Options > Mods > Loot on Hover (and the same row in Apocrypha Menu Framework), with one switch: "Gather herbs without the loot window", on by default. Off brings back 1.0.1's hover window on herbs. Labels in every game language file (English, Japanese, Korean, Chinese, Russian, German, French, Spanish, Italian, Polish, Czech and Brazilian Portuguese written out; string idspace 7721). (2026-10-16)

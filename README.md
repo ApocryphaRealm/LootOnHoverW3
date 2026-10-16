@@ -1,9 +1,9 @@
 # Loot on Hover (The Witcher 3, 5.0)
 
-Version 1.0.1 - this build's own number (an original mod; there is no upstream version).
+Version 1.0.2 - this build's own number (an original mod; there is no upstream version).
 
 The loot window opens by itself when Geralt looks at anything he can loot - chests, barrels, crates, corpses, loot
-bags, herbs - with no button press. It works while exploring and swimming, never in combat, and Geralt keeps moving
+bags - with no button press. Herbs are gathered the game's way, with no window (a setting). It works while exploring and swimming, never in combat, and Geralt keeps moving
 with it open.
 
 | While the window is up | Controller | Keyboard |
@@ -17,6 +17,23 @@ button is the game's own. Looking away closes it, and so
 does a fight starting; closed with B, it stays closed until Geralt looks at something else.
 
 Locked chests, empty containers and corpses under the game's Auto-loot setting behave exactly as before.
+
+**Herbs** open no window (the default): the game's own "Gather Ingredients" prompt stays, and A gathers everything on
+the herb at once, exactly as without the mod. Switch "Gather herbs without the loot window" off and a herb gets the
+hover window like any other container.
+
+## Settings
+
+Options > Mods > Loot on Hover (Apocrypha Menu Framework lists the same row with the game's other mod menus):
+
+| Setting | Default | What it does |
+|---|---|---|
+| Gather herbs without the loot window | On | On: no window for herbs; A on the game's prompt gathers everything. Off: herbs get the hover window. |
+
+The menu comes from `bin\config\r4game\user_config_matrix\pc\LootOnHover.xml` and its labels from the
+`Mods\modLootOnHover\content\*.w3strings` string tables (one per game language file; English, Japanese, Korean,
+Chinese, Russian, German, French, Spanish, Italian, Polish, Czech and Brazilian Portuguese written out). Without the XML
+the setting is simply on.
 
 ## Controller bindings
 
@@ -61,7 +78,16 @@ and it replaces that line with the Y one, in both sections. The shipped installe
   while the others' items are still listed.
 - The per-frame check closes the window once the target has stayed gone for a third of a second (running an
   interaction drops the target for a moment).
-- A herb emptied one item at a time is marked picked, as its take-everything path does.
+- Herbs (setting on, the default): the game's own A at a herb - a `W3Herb`, or the "GatherHerbs" prompt on a container
+  that skips the inventory panel - never opens a window in 5.01 (`W3Container.ProcessLoot`: the gathering animation,
+  `TakeAllItems` with the game's looted notifications, then `OnContainerClosed`; `W3RefillableContainer.TakeAllItems`
+  marks it picked and its Refill timer regrows it). So the mod opens no window for a herb and leaves its A alone: the
+  prompt and the gathering are the game's. A window that is up for something else closes the moment Geralt looks at a
+  herb, so one A press never both gathers and takes from that window. The game's Loot merge never puts a herb in a
+  body's window (`PopulateData` gathers only `W3ActorRemains`). The setting is read on each look
+  (`GetVarValue('LootOnHover', 'GatherHerbsDirectly')`); a value never set reads as on and is written as "true" once.
+- Setting off: a herb gets the hover window, and one emptied one item at a time is marked picked, as its
+  take-everything path does.
 - No rumble on hover: from the moment the window is asked for until half a second after it closes, the pad's
   vibration is off (`theGame.SetVibrationEnabled`, the switch the game's quests use), then put back as it was; a
   player whose vibration setting is off is never touched. A take lets the game's own take rumble through (herbs and
@@ -73,6 +99,8 @@ line on screen.
 ## Building
 
 `python tools/dry_compile.py` compiles the script over the game's own scripts with REDkit's wcc_lite (no launch).
+`python tools/gen_strings.py` writes the settings menu's string tables (`--check` compares them with its table; string
+ids in idspace 7721).
 
 ## Compatibility
 

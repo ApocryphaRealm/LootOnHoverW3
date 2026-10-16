@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.2 - 2026-10-16 - untested
+
+### Added
+- A settings page, Options > Mods > Loot on Hover (and the same row in Apocrypha Menu Framework), with one switch: "Gather herbs without the loot window", on by default. Off brings back 1.0.1's hover window on herbs. Labels in every game language file (English, Japanese, Korean, Chinese, Russian, German, French, Spanish, Italian, Polish, Czech and Brazilian Portuguese written out; string idspace 7721). (2026-10-16)
+- Herbs are gathered without the loot window: looking at a herb opens no hover window, the game's own "Gather Ingredients" prompt stays, and A gathers everything on it the game's way (its gathering animation, the looted notifications, the herb marked picked and regrowing). A window that is up for something else closes the moment Geralt looks at a herb, so one A press never both gathers the herb and takes from that window. Asked for in a player's Nexus comment and promised by the project owner for this version. (2026-10-16)
+
+Read from 5.01's scripts: the game's own A at a herb never opened a window (W3Container.ProcessLoot sends a W3Herb, and
+any container that skips the inventory panel, to TakeAllItems and OnContainerClosed), so the mod now simply stays out of
+the way there. The game's Loot merge never lists a herb in a body's window (PopulateData gathers only W3ActorRemains).
+Dry compile 2026-10-16: COMPILE OK over the game's scripts alone, and over the owner's ticked MO2 set (30 script
+folders, TW3SE stubs applied) with both installed Loot on Hover folders left out.
+
 ## 1.0.1 - 2026-10-14 - working (the 'loot merge' build, c51cfae; the owner's release order 2026-10-15: "post loot on hover since it has the loot merge fix")
 
 ### Changed

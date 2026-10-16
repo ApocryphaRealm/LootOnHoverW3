@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Loot on Hover: Options > Mods > Loot on Hover (and the same row in Apocrypha Menu Framework).
+     GatherHerbsDirectly: "Gather herbs without the loot window" - on, no hover window opens for a herb and the game's own
+     "Gather Ingredients" prompt gathers everything on A, as without the mod; off, a herb gets the hover window like any
+     other container. On by default: the script reads an unset value as on and writes "true" the first time it asks
+     (LootOnHover.ws LohGatherHerbsDirectly), so the switch shows what the mod does. Without this file the setting is on. -->
+<UserConfig>
+	<Group id="LootOnHover" displayName="Mods.loh_menu">
+		<VisibleVars>
+			<Var id="GatherHerbsDirectly" displayName="loh_gather_herbs" displayType="TOGGLE"/>
+		</VisibleVars>
+	</Group>
+</UserConfig>

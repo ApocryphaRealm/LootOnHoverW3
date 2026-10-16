@@ -6,6 +6,8 @@
 //     A takes the highlighted item, Y takes everything (the button the window's own hint shows), B closes it.
 //     X does nothing. It opens and closes with no sound, no rumble and no camera move; taking items sounds as usual.
 //     The game's Loot merge setting applies as it does to the A press: on, a body's window lists every body nearby.
+//   Herbs: with "Gather herbs without the loot window" on (Options > Mods > Loot on Hover, the default) no window opens
+//     for a herb - the game's own "Gather Ingredients" prompt stays and A gathers everything, the game's way.
 //
 // Annotations only: no game script is replaced. The window's own buttons (A take, B close) still come from the
 // game's loot movie; A, Y and B are also the mod's own three input actions (LohTake, LohTakeAll, LohClose), and
@@ -281,6 +283,70 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	return LohHolds(container);
 }
 
+// --- herbs without the loot window ----------------------------------------------------------------------------------
+// The setting: Options > Mods > Loot on Hover, "Gather herbs without the loot window" (bin\config\r4game\
+// user_config_matrix\pc\LootOnHover.xml: group LootOnHover, var GatherHerbsDirectly), on by default.
+// What the game itself does on A at a herb (5.01, container.ws W3Container.OnInteraction -> ProcessLoot): a W3Herb, or
+// any container that skips the inventory panel (W3RefillableContainer sets skipInventoryPanel by default), never gets a
+// window - Geralt plays his gathering animation ('LootHerb'), TakeAllItems hands every item over with the game's own
+// looted notifications and sound, and OnContainerClosed then empties its look. W3RefillableContainer.TakeAllItems marks
+// it picked (isEmpty, no focus highlight, interaction off) and its 'Refill' timer regrows it. The merged loot list
+// (Loot merge) never holds a herb: CR4LootPopup.PopulateData gathers only W3ActorRemains, and only into a body's window.
+// So with the setting on the mod opens no window for a herb and does nothing on its A: the "Gather Ingredients" prompt
+// is the game's own and so is the gathering. A preview that is up for something else closes the moment Geralt looks at
+// a herb, so one A press can never both gather the herb and take from that window. Y and B are the player's own there
+// (the mod's actions only act with its window up). Off, a herb gets the hover window exactly as in 1.0.1.
+@addField(CR4Game) var lohHerbDefaultWritten : bool;
+
+@addMethod(CR4Game) public function LohMarkHerbDefaultWritten()
+{
+	lohHerbDefaultWritten = true;
+}
+
+// On unless the player has switched it off. A value never set (a fresh install) is written as on, once, so the menu's
+// switch shows what the mod does; with no menu file installed (a manager that skips bin\) it is simply on.
+function LohGatherHerbsDirectly() : bool
+{
+	var cfg : CInGameConfigWrapper;
+	var raw : string;
+
+	cfg = theGame.GetInGameConfigWrapper();
+	if (!cfg || cfg.GetGroupIdx("LootOnHover") < 0)
+		return true;
+	raw = cfg.GetVarValue('LootOnHover', 'GatherHerbsDirectly');
+	if (raw == "" && !theGame.lohHerbDefaultWritten)
+	{
+		theGame.LohMarkHerbDefaultWritten();
+		cfg.SetVarValue('LootOnHover', 'GatherHerbsDirectly', "true");
+		theGame.SaveUserSettings();
+		LohLog("'Gather herbs without the loot window' was never set - written as on (the default)");
+	}
+	return raw != "false";
+}
+
+// The interaction is a herb with something on it that the game's own A gathers with no window, and the setting is on.
+function LohHerbGatheredByGame(interaction : CInteractionComponent) : bool
+{
+	var container : W3Container;
+
+	if (!interaction)
+		return false;
+	container = (W3Container)interaction.GetEntity();
+	if (!container || (W3DisplayMount)container)
+		return false;
+	if (!container.LohIsLootInteraction(interaction))
+		return false;
+	if (!((W3Herb)container))
+	{
+		// not the herb class: only the "Gather Ingredients" prompt on a container the game loots without the panel
+		if (interaction.GetActionName() != "GatherHerbs" || !container.GetSkipInventoryPanel())
+			return false;
+	}
+	if (!container.LohHasLoot())
+		return false;
+	return LohGatherHerbsDirectly();
+}
+
 // --- opening on hover -------------------------------------------------------------------------------------------
 
 @wrapMethod(CInteractionsManager) function OnGuiInteractionChanged(newInteraction : CInteractionComponent)
@@ -288,21 +354,49 @@ function LohLootableTarget(interaction : CInteractionComponent) : W3Container
 	var result : bool;
 	var popup : CR4LootPopup;
 	var container : W3Container;
+	var herb : bool;
 
 	result = wrappedMethod(newInteraction);
 
-	container = LohLootableTarget(newInteraction);
+	// A herb the game gathers with no window, and the setting is on: no window for it (see "herbs without the loot
+	// window" above).
+	herb = LohHerbGatheredByGame(newInteraction);
+	if (herb)
+	{
+		container = NULL;
+	}
+	else
+	{
+		container = LohLootableTarget(newInteraction);
+	}
 
 	// Another lootable straight away: the preview moves to it - unless it is already in this window (a body the game's
-	// Loot merge setting gathered into it). Anything else (no target, a door, a person) is left to the per-frame check,
-	// which closes the preview only once the target has stayed gone - running the interaction on A drops the target for
-	// a moment.
+	// Loot merge setting gathered into it). A herb gathered the game's way closes the preview at once, so A can only
+	// gather the herb and never also takes from the window. Anything else (no target, a door, a person) is left to the
+	// per-frame check, which closes the preview only once the target has stayed gone - running the interaction on A
+	// drops the target for a moment.
 	popup = LohGetPopup();
-	if (popup && popup.lohPreview && container && !popup.LohHolds(container))
+	if (popup && popup.lohPreview && (herb || (container && !popup.LohHolds(container))))
 	{
-		LohLog("another lootable - moving the preview");
+		if (herb)
+		{
+			LohLog("a herb - closing the preview; A gathers the herb the game's way");
+		}
+		else
+		{
+			LohLog("another lootable - moving the preview");
+		}
 		theGame.ClosePopup('LootPopup');
 		popup = NULL;
+	}
+
+	if (herb)
+	{
+		if (LohPlayerCanHover())
+		{
+			LohLog("looking at " + ((W3Container)newInteraction.GetEntity()).GetReadableName() + " - a herb: no window, the game's Gather prompt takes everything (setting on)");
+		}
+		return result;
 	}
 
 	if (!container || popup || !LohPlayerCanHover())
